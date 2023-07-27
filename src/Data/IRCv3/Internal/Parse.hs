@@ -24,7 +24,7 @@ pack3 :: Char -> Char -> Char -> B.ByteString
 pack3 a b c = C.pack [a,b,c]
 
 pcount :: Int -> P.Parser B.ByteString -> P.Parser B.ByteString
-pcount n p = B.concat <$> P.count n p
+pcount n p = cn $ P.count n p
 
 btw :: Char -> Char -> P.Parser Char
 btw a b = P.satisfy (\c -> c >= a && c <= b)
@@ -97,16 +97,17 @@ ip6addr =     (                     pcount 6 h16c <++> ls32)
     pre 0 = orempty h16
     pre n = orempty ((cn $ upto (n-1) h16c) <++> h16)
 
-mapF :: [(a -> Bool)] -> a -> [Bool]
-mapF fs x = map ($ x) fs
-
 tag :: P.Parser Tag
 tag = (,) <$> key <*> (P.char '=' *> val)
   where
     key :: P.Parser B.ByteString
-    key = (B.append) <$> P.option (C.pack "") (P.string $ C.pack "+") <*> P.takeWhile1 (or . (mapF [P.isAlpha_ascii, P.isDigit, (== '-')]))
+    key = orempty (bs "+") <++> orempty (vendor <++> bs "/") <++> P.takeWhile1 isKeyChar
     val :: P.Parser B.ByteString
     val = P.takeWhile1 (not . endOfVal)
+    vendor :: P.Parser B.ByteString
+    vendor = host
+    isKeyChar :: Char -> Bool
+    isKeyChar c = or $ map ($ c) [P.isAlpha_ascii, P.isDigit, (== '-')]
     endOfVal :: Char -> Bool
     endOfVal = (flip elem) "\0\r\n; "
 
