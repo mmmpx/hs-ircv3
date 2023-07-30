@@ -1,4 +1,6 @@
-module Data.IRCv3 (Data.IRCv3.Internal.Parse.tag) where
+module Data.IRCv3
+  ( Data.IRCv3.Internal.Parse.message ) where
 
-import Data.IRCv3.Internal.Parse (tag)
+import Data.IRCv3.Internal.Parse
+  ( message )
 

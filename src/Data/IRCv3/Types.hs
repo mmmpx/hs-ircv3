@@ -9,7 +9,7 @@ type Source = BS.ByteString
 
 type Command = BS.ByteString
 
-type Parameters = [BS.ByteString]
+type Parameters = ([BS.ByteString], Maybe BS.ByteString)
 
 data Message
   = Message
