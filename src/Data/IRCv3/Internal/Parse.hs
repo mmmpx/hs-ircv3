@@ -2,7 +2,6 @@ module Data.IRCv3.Internal.Parse
   ( message ) where
 
 import qualified Data.Attoparsec.ByteString.Char8 as P
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import Data.Char
 import Data.List
@@ -15,22 +14,22 @@ import Data.IRCv3.Types
   , Parameters )
 import Control.Applicative
 
-(<++>) :: P.Parser B.ByteString -> P.Parser B.ByteString -> P.Parser B.ByteString
-a <++> b = B.append <$> a <*> b
+(<++>) :: P.Parser C.ByteString -> P.Parser C.ByteString -> P.Parser C.ByteString
+a <++> b = C.append <$> a <*> b
 
-bs :: String -> P.Parser B.ByteString
+bs :: String -> P.Parser C.ByteString
 bs = P.string . C.pack
 
-pack1 :: Char -> B.ByteString
+pack1 :: Char -> C.ByteString
 pack1 = C.pack . singleton
 
-pack2 :: Char -> Char -> B.ByteString
+pack2 :: Char -> Char -> C.ByteString
 pack2 a b = C.pack [a,b]
 
-pack3 :: Char -> Char -> Char -> B.ByteString
+pack3 :: Char -> Char -> Char -> C.ByteString
 pack3 a b c = C.pack [a,b,c]
 
-pcount :: Int -> P.Parser B.ByteString -> P.Parser B.ByteString
+pcount :: Int -> P.Parser C.ByteString -> P.Parser C.ByteString
 pcount n p = cn $ P.count n p
 
 btw :: Char -> Char -> P.Parser Char
@@ -44,14 +43,14 @@ upto1 :: Int -> P.Parser a -> P.Parser [a]
 upto1 n p | n > 0 = (:) <$> p <*> upto (n-1) p
 upto1 _ _ = return []
 
-cn :: P.Parser [B.ByteString] -> P.Parser B.ByteString
-cn p = B.concat <$> p
+cn :: P.Parser [C.ByteString] -> P.Parser C.ByteString
+cn p = C.concat <$> p
 
-cp :: P.Parser [Char] -> P.Parser B.ByteString
+cp :: P.Parser [Char] -> P.Parser C.ByteString
 cp p = C.pack <$> p
 
-orempty :: P.Parser B.ByteString -> P.Parser B.ByteString
-orempty = P.option B.empty
+orempty :: P.Parser C.ByteString -> P.Parser C.ByteString
+orempty = P.option C.empty
 
 hexDigit :: P.Parser Char
 hexDigit = P.satisfy isHexDigit
@@ -59,7 +58,7 @@ hexDigit = P.satisfy isHexDigit
 maybep :: P.Parser a -> P.Parser (Maybe a)
 maybep p = P.option Nothing (Just <$> p)
 
-crlf :: P.Parser B.ByteString
+crlf :: P.Parser C.ByteString
 crlf = bs "\r\n"
 
 -- ABNF
@@ -75,7 +74,7 @@ message =
   where
     tags' :: P.Parser Tags
     tags' = P.char '@' *> tags <* P.char ' '
-    source' :: P.Parser B.ByteString
+    source' :: P.Parser C.ByteString
     source' = P.char ':' *> source <* P.char ' '
 
 source :: P.Parser Source
@@ -97,30 +96,30 @@ parameters =     (,)
     middle = P.takeWhile1 (not . (flip elem "\0\r\n: "))
     trailing = P.takeWhile1 (not . (flip elem "\0\r\n"))
 
-servername :: P.Parser B.ByteString
+servername :: P.Parser C.ByteString
 servername = hostname
 
-host :: P.Parser B.ByteString
+host :: P.Parser C.ByteString
 host =     hostname
        <|> hostaddr
 
-hostname :: P.Parser B.ByteString
+hostname :: P.Parser C.ByteString
 hostname = shortname <++> (cn $ many dsh)
   where
     dsh = (bs ".") <++> shortname
 
-shortname :: P.Parser B.ByteString
+shortname :: P.Parser C.ByteString
 shortname = lod <++> (cn $ many lodh) <++> (cn $ many lod)
   where
     lod = pack1 <$> (P.letter_ascii <|> P.digit)
     lodh =     lod
            <|> (bs "-")
 
-hostaddr :: P.Parser B.ByteString
+hostaddr :: P.Parser C.ByteString
 hostaddr =     ip4addr
            <|> ip6addr
 
-ip4addr :: P.Parser B.ByteString
+ip4addr :: P.Parser C.ByteString
 ip4addr = octet <++> dot <++> octet <++> dot <++> octet <++> dot <++> octet
   where
     octet =     (pack1 <$> P.digit                                  ) -- 0-9
@@ -130,7 +129,7 @@ ip4addr = octet <++> dot <++> octet <++> dot <++> octet <++> dot <++> octet
             <|> (pack3 <$> P.char '2' <*> P.char '5' <*> btw '0' '5') -- 250-255
     dot = bs "."
 
-ip6addr :: P.Parser B.ByteString
+ip6addr :: P.Parser C.ByteString
 ip6addr =     (                     pcount 6 h16c <++> ls32)
           <|> (           dcol <++> pcount 5 h16c <++> ls32)
           <|> (pre 0 <++> dcol <++> pcount 4 h16c <++> ls32)
@@ -159,11 +158,11 @@ tag =     (,)
       <$> key
       <*> (P.char '=' *> val)
   where
-    key :: P.Parser B.ByteString
+    key :: P.Parser C.ByteString
     key = orempty (bs "+") <++> orempty (vendor <++> bs "/") <++> P.takeWhile1 isKeyChar
-    val :: P.Parser B.ByteString
+    val :: P.Parser C.ByteString
     val = P.takeWhile (not . endOfVal)
-    vendor :: P.Parser B.ByteString
+    vendor :: P.Parser C.ByteString
     vendor = host
     isKeyChar :: Char -> Bool
     isKeyChar c = or $ map ($ c) [P.isAlpha_ascii, P.isDigit, (== '-')]
