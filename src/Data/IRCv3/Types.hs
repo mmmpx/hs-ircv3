@@ -1,15 +1,20 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module Data.IRCv3.Types where
 
-import qualified Data.ByteString as BS
+import Data.ByteString (ByteString)
+import GHC.Generics (Generic)
 
-type Tag = (BS.ByteString, BS.ByteString)
+
+type Tag = (ByteString, ByteString)
 type Tags = [Tag]
 
-type Source = BS.ByteString
+type Source = ByteString
 
-type Command = BS.ByteString
+type Command = ByteString
 
-type Parameters = ([BS.ByteString], Maybe BS.ByteString)
+type Parameters = ([ByteString], Maybe ByteString)
+
 
 data Message
   = Message
@@ -17,5 +22,4 @@ data Message
   , source :: Maybe Source
   , command :: Command
   , parameters :: Parameters }
-  deriving Show
-
+  deriving (Generic, Show)
