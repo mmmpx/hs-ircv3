@@ -6,7 +6,7 @@
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
-import Data.Attoparsec (parseOnly)
+import Data.Attoparsec.Text (parseOnly)
 import Data.IRCv3 (message, Message)
 
 main :: IO ()
