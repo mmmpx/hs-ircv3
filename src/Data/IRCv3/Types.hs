@@ -2,18 +2,18 @@
 
 module Data.IRCv3.Types where
 
-import Data.ByteString (ByteString)
+import Data.Text (Text)
 import GHC.Generics (Generic)
 
 
-type Tag = (ByteString, ByteString)
+type Tag = (Text, Text)
 type Tags = [Tag]
 
-type Source = ByteString
+type Source = Text
 
-type Command = ByteString
+type Command = Text
 
-type Parameters = ([ByteString], Maybe ByteString)
+type Parameters = ([Text], Maybe Text)
 
 
 data Message

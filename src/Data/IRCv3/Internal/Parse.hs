@@ -1,10 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Data.IRCv3.Internal.Parse
   ( message ) where
 
-import qualified Data.Attoparsec.ByteString.Char8 as P
-import qualified Data.ByteString.Char8 as C
-import Data.Char
-import Data.List
+import Data.Attoparsec.Text ( Parser )
+import qualified Data.Attoparsec.Text as AP
+import Data.Char ( isAlpha, isDigit, isHexDigit )
 import Data.IRCv3.Types
   ( Message(Message)
   , Tags
@@ -12,160 +13,162 @@ import Data.IRCv3.Types
   , Source
   , Command
   , Parameters )
-import Control.Applicative
+import qualified Data.List as List
+import Data.Text ( Text )
+import qualified Data.Text as Text
+import Data.Text.Builder.Linear ( Builder, fromChar, fromText, runBuilder)
+import Control.Applicative ( Alternative((<|>)) )
 
-(<++>) :: P.Parser C.ByteString -> P.Parser C.ByteString -> P.Parser C.ByteString
-a <++> b = C.append <$> a <*> b
+sb :: Text -> Parser Builder
+sb x = fromText <$> AP.string x
 
-bs :: String -> P.Parser C.ByteString
-bs = P.string . C.pack
+cb' :: Functor f => f Char -> f Builder
+cb' p = fromChar <$> p
 
-pack1 :: Char -> C.ByteString
-pack1 = C.pack . singleton
+cb :: Char -> Parser Builder
+cb x = fromChar <$> AP.char x
 
-pack2 :: Char -> Char -> C.ByteString
-pack2 a b = C.pack [a,b]
+(<++>) :: Applicative f => f Text -> f Text -> f Builder
+a <++> b = (<>) <$> (fromText <$> a) <*> (fromText <$> b)
 
-pack3 :: Char -> Char -> Char -> C.ByteString
-pack3 a b c = C.pack [a,b,c]
+(<-+>) :: Applicative f => f Builder -> f Text -> f Builder
+a <-+> b = (<>) <$> a <*> (fromText <$> b)
 
-pcount :: Int -> P.Parser C.ByteString -> P.Parser C.ByteString
-pcount n p = cn $ P.count n p
+(<+->) :: Applicative f => f Text -> f Builder -> f Builder
+a <+-> b = (<>) <$> (fromText <$> a) <*> b
 
-btw :: Char -> Char -> P.Parser Char
-btw a b = P.satisfy (\c -> c >= a && c <= b)
+(<-->) :: (Applicative f, Semigroup b) => f b -> f b -> f b
+a <--> b = (<>) <$> a <*> b
 
-upto :: Int -> P.Parser a -> P.Parser [a]
+build :: Builder -> Text
+build = runBuilder
+
+cn :: Foldable t => t Builder -> Builder
+cn = List.foldl' (<>) (fromText "")
+
+pcount :: Monad m => Int -> m Builder -> m Builder
+pcount n p = cn <$> AP.count n p
+
+btw :: Char -> Char -> Parser Builder
+btw a b = fromChar <$> AP.satisfy (\c -> c >= a && c <= b)
+
+upto :: Int -> Parser a -> Parser [a]
 upto n p | n > 0 = (:) <$> p <*> upto (n-1) p <|> return []
 upto _ _ = return []
 
-upto1 :: Int -> P.Parser a -> P.Parser [a]
+upto1 :: Int -> Parser a -> Parser [a]
 upto1 n p | n > 0 = (:) <$> p <*> upto (n-1) p
 upto1 _ _ = return []
 
-cn :: P.Parser [C.ByteString] -> P.Parser C.ByteString
-cn p = C.concat <$> p
+orempty :: Parser Builder -> Parser Builder
+orempty = AP.option (fromText "")
 
-cp :: P.Parser [Char] -> P.Parser C.ByteString
-cp p = C.pack <$> p
+hexDigit :: Parser Char
+hexDigit = AP.satisfy isHexDigit
 
-orempty :: P.Parser C.ByteString -> P.Parser C.ByteString
-orempty = P.option C.empty
+maybep :: Parser a -> Parser (Maybe a)
+maybep p = AP.option Nothing (Just <$> p)
 
-hexDigit :: P.Parser Char
-hexDigit = P.satisfy isHexDigit
+crlf :: Parser Text
+crlf = AP.string "\r\n"
 
-maybep :: P.Parser a -> P.Parser (Maybe a)
-maybep p = P.option Nothing (Just <$> p)
+-- -- ABNF
 
-crlf :: P.Parser C.ByteString
-crlf = bs "\r\n"
-
--- ABNF
-
-message :: P.Parser Message
-message =
-          Message
-      <$> maybep tags'
-      <*> maybep source'
-      <*> command
-      <*> parameters
-      <*  crlf
+message :: Parser Message
+message =     Message
+          <$> maybep tags'
+          <*> maybep source'
+          <*> command
+          <*> parameters
+          <*  crlf
   where
-    tags' :: P.Parser Tags
-    tags' = P.char '@' *> tags <* P.char ' '
-    source' :: P.Parser C.ByteString
-    source' = P.char ':' *> source <* P.char ' '
+    tags' = AP.char '@' *> tags <* AP.char ' '
+    source' = AP.char ':' *> source <* AP.char ' '
 
-source :: P.Parser Source
-source =     (nick <++> orempty (bs "!" <++> user) <++> orempty (bs "@" <++> host))
-         <|> servername
+source :: Parser Source
+source =     build
+         <$> (
+                   (nick <--> orempty (cb '!' <-+> user) <--> orempty (cb '@' <--> host))
+               <|> servername
+             )
   where
-    nick = (pack1 <$> P.satisfy (not . (flip elem "\0\r\n# "))) <++> P.takeWhile (not . (flip elem "\0\r\n "))
-    user = P.takeWhile1 (not . (flip elem "\0\r\n "))
+    nick =      (Text.singleton <$> AP.satisfy (not . (flip elem ("\0\r\n# " :: String))))
+           <++> AP.takeWhile (not . (flip elem ("\0\r\n " :: String)))
+    user = AP.takeWhile1 (not . (flip elem ("\0\r\n " :: String)))
 
-command :: P.Parser Command
-command =     P.takeWhile1 P.isAlpha_ascii
-          <|> cp (P.count 3 P.digit)
+command :: Parser Command
+command = AP.takeWhile1 isAlpha <|> (Text.pack <$> AP.count 3 AP.digit)
 
-parameters :: P.Parser Parameters
+parameters :: Parser Parameters
 parameters =     (,)
-             <$> P.many' (P.char ' ' *> middle)
-             <*> maybep (P.char ' ' *> P.char ':' *> trailing)
+             <$> AP.many' (AP.char ' ' *> middle)
+             <*> maybep (AP.char ' ' *> AP.char ':' *> trailing)
   where
-    middle = P.takeWhile1 (not . (flip elem "\0\r\n: "))
-    trailing = P.takeWhile1 (not . (flip elem "\0\r\n"))
+    middle = AP.takeWhile1 (not . (flip elem ("\0\r\n: " :: String)))
+    trailing = AP.takeWhile1 (not . (flip elem ("\0\r\n" :: String)))
 
-servername :: P.Parser C.ByteString
+servername :: Parser Builder
 servername = hostname
 
-host :: P.Parser C.ByteString
-host =     hostname
-       <|> hostaddr
+host :: Parser Builder
+host = hostname <|> hostaddr
 
-hostname :: P.Parser C.ByteString
-hostname = shortname <++> (cn $ many dsh)
+hostname :: Parser Builder
+hostname = shortname <--> (cn <$> AP.many' dsh)
   where
-    dsh = (bs ".") <++> shortname
+    dsh = (cb '.') <--> shortname
 
-shortname :: P.Parser C.ByteString
-shortname = lod <++> (cn $ many lodh) <++> (cn $ many lod)
+shortname :: Parser Builder
+shortname = lod <--> (cn <$> AP.many' lodh) <--> (cn <$> AP.many' lod)
   where
-    lod = pack1 <$> (P.letter_ascii <|> P.digit)
-    lodh =     lod
-           <|> (bs "-")
+    lod = cb' (AP.letter <|> AP.digit)
+    lodh = lod <|> (cb '-')
 
-hostaddr :: P.Parser C.ByteString
-hostaddr =     ip4addr
-           <|> ip6addr
+hostaddr :: Parser Builder
+hostaddr = ip4addr <|> ip6addr
 
-ip4addr :: P.Parser C.ByteString
-ip4addr = octet <++> dot <++> octet <++> dot <++> octet <++> dot <++> octet
+ip4addr :: Parser Builder
+ip4addr = octet <--> (dot *> octet) <--> (dot *> octet) <--> (dot *> octet)
   where
-    octet =     (pack1 <$> P.digit                                  ) -- 0-9
-            <|> (pack2 <$> btw '1' '9' <*> P.digit                  ) -- 10-99
-            <|> (pack3 <$> P.char '1' <*> P.digit <*> P.digit       ) -- 100-199
-            <|> (pack3 <$> P.char '2' <*> btw '0' '4' <*> P.digit   ) -- 200-249
-            <|> (pack3 <$> P.char '2' <*> P.char '5' <*> btw '0' '5') -- 250-255
-    dot = bs "."
+    octet =     (                              digit       ) -- 0-9
+            <|> (             btw '1' '9' <--> digit       ) -- 10-99
+            <|> ( cb '1' <--> digit       <--> digit       ) -- 100-199
+            <|> ( cb '2' <--> btw '0' '4' <--> digit       ) -- 200-249
+            <|> ( cb '2' <--> cb '5'      <--> btw '0' '5' ) -- 250-255
+    digit = cb' AP.digit
+    dot = AP.char '.'
 
-ip6addr :: P.Parser C.ByteString
-ip6addr =     (                     pcount 6 h16c <++> ls32)
-          <|> (           dcol <++> pcount 5 h16c <++> ls32)
-          <|> (pre 0 <++> dcol <++> pcount 4 h16c <++> ls32)
-          <|> (pre 1 <++> dcol <++> pcount 3 h16c <++> ls32)
-          <|> (pre 2 <++> dcol <++> pcount 2 h16c <++> ls32)
-          <|> (pre 3 <++> dcol <++> h16c          <++> ls32)
-          <|> (pre 4 <++> dcol                    <++> ls32)
-          <|> (pre 5 <++> dcol                    <++> h16 )
-          <|> (pre 6 <++> dcol                             )
+ip6addr :: Parser Builder
+ip6addr =     (                      pcount 6 h16c <--> ls32 )
+          <|> (            dcol <--> pcount 5 h16c <--> ls32 )
+          <|> ( pre 0 <--> dcol <--> pcount 4 h16c <--> ls32 )
+          <|> ( pre 1 <--> dcol <--> pcount 3 h16c <--> ls32 )
+          <|> ( pre 2 <--> dcol <--> pcount 2 h16c <--> ls32 )
+          <|> ( pre 3 <--> dcol <--> h16c          <--> ls32 )
+          <|> ( pre 4 <--> dcol                    <--> ls32 )
+          <|> ( pre 5 <--> dcol                    <--> h16  )
+          <|> ( pre 6 <--> dcol                              )
   where
-    h16 = C.pack <$> upto1 4 hexDigit
-    h16c = C.append <$> h16 <*> (P.string $ C.pack ":")
-    ls32 = (h16 <++> col <++> h16) <|> ip4addr
-    col = bs ":"
-    dcol = bs "::"
+    col   = cb ':'
+    dcol  = sb "::"
+    h16   = fromText <$> Text.pack <$> upto1 4 hexDigit
+    h16c  = h16 <--> col
+    ls32  = (h16c <--> h16) <|> ip4addr
     pre 0 = orempty h16
-    pre n = orempty ((cn $ upto (n-1) h16c) <++> h16)
+    pre n = orempty ((cn <$> upto (n-1) h16c) <--> h16)
 
-tags :: P.Parser Tags
+tags :: Parser Tags
 tags =     (:)
        <$> tag
-       <*> many (P.char ';' *> tag)
+       <*> AP.many' (AP.char ';' *> tag)
 
-tag :: P.Parser Tag
+tag :: Parser Tag
 tag =     (,)
       <$> key
-      <*> (P.char '=' *> val)
+      <*> (AP.char '=' *> val)
   where
-    key :: P.Parser C.ByteString
-    key = orempty (bs "+") <++> orempty (vendor <++> bs "/") <++> P.takeWhile1 isKeyChar
-    val :: P.Parser C.ByteString
-    val = P.takeWhile (not . endOfVal)
-    vendor :: P.Parser C.ByteString
+    key = build <$> orempty (cb '+') <--> orempty (vendor <--> cb '/') <-+> AP.takeWhile1 isKeyChar
     vendor = host
-    isKeyChar :: Char -> Bool
-    isKeyChar c = or $ map ($ c) [P.isAlpha_ascii, P.isDigit, (== '-')]
-    endOfVal :: Char -> Bool
-    endOfVal = flip elem "\0\r\n; "
-
+    isKeyChar c = or $ map ($ c) [isAlpha, isDigit, (== '-')]
+    val = AP.takeWhile (not . endOfVal)
+    endOfVal = flip elem ("\0\r\n; " :: String)

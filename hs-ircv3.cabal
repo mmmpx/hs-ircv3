@@ -70,6 +70,9 @@ library
     build-depends:    base ^>=4.19.0.0
                     , attoparsec
                     , bytestring
+                    , text
+                    , containers
+                    , text-builder-linear
 
     -- Directories containing source files.
     hs-source-dirs:   src
